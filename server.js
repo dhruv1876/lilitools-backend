@@ -1,36 +1,77 @@
-
+// server.js
+require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
+const path = require('path');
+
 const app = express();
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const PORT = process.env.PORT || 3000;
-app.use(express.json());
 
-// Single AI route for all tools
-app.post('/api/ai', async (req, res) => {
-  const { prompt } = req.body;
+// Allowed origins (Blogger + your domain)
+const ALLOWED_ORIGINS = [
+  'https://www.lilitools.com',
+  'https://lilitools.com'
+];
 
-  if (!prompt) {
-    return res.status(400).json({ error: 'Prompt is required' });
+app.use(cors({
+  origin: function (origin, cb) {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      cb(null, true);
+    } else {
+      cb(new Error('CORS blocked for origin: ' + origin));
+    }
   }
+}));
 
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public'))); // for xl_max.js
+
+const API_KEY = process.env.API_KEY; // set in Render environment variables
+if (!API_KEY) {
+  console.error('❌ ERROR: API_KEY is missing. Set it in Render environment.');
+  process.exit(1);
+}
+
+// Simple test route
+app.get('/api/config', (req, res) => {
+  res.json({ status: 'ok', origin: req.get('origin') || null });
+});
+
+// Unified AI route
+app.post('/api/ai', async (req, res) => {
   try {
-    const geminiURL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`;
-    
-    const response = await fetch(geminiURL, {
+    const { prompt } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${API_KEY}`;
+
+    const payload = {
+      contents: [{ role: "user", parts: [{ text: prompt }] }]
+    };
+
+    const r = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }]
-      })
+      body: JSON.stringify(payload)
     });
 
-    const result = await response.json();
-    const aiText = result?.candidates?.[0]?.content?.parts?.[0]?.text || "No response";
+    const json = await r.json();
+    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
 
-    res.json({ text: aiText });
+    if (!text) {
+      return res.status(502).json({ error: 'No text from AI', details: json });
+    }
 
-  } catch (error) {
-    console.error('AI API Error:', error);
-    res.status(500).json({ error: 'Failed to get AI response' });
+    res.json({ text });
+  } catch (err) {
+    console.error('Error in /api/ai:', err);
+    res.status(500).json({ error: 'Internal Server Error', details: err.message });
   }
+});
+
+// Start server with Render's port
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
 });
