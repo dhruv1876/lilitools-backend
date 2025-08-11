@@ -1,6 +1,8 @@
+
 const express = require('express');
 const app = express();
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 // Single AI route for all tools
